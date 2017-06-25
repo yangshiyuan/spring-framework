@@ -170,6 +170,7 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 
 	@Override
 	public Object getSingleton(String beanName) {
+		// 参数true 设置标识允许早期依赖
 		return getSingleton(beanName, true);
 	}
 
@@ -182,14 +183,21 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 	 * @return the registered singleton object, or {@code null} if none found
 	 */
 	protected Object getSingleton(String beanName, boolean allowEarlyReference) {
+		// 检查缓存中是否存在实例
 		Object singletonObject = this.singletonObjects.get(beanName);
 		if (singletonObject == null && isSingletonCurrentlyInCreation(beanName)) {
+			// 如果为空，则锁定全局变量并进行处理
 			synchronized (this.singletonObjects) {
+				// 如果此bean正在加载不处理
 				singletonObject = this.earlySingletonObjects.get(beanName);
 				if (singletonObject == null && allowEarlyReference) {
+					// 当某些方法需要提前初始化的时候则会调用 addSingletonFactory 方法将对应的
+					// ObjectFactory 初始化策略存储在singletonFactories
 					ObjectFactory<?> singletonFactory = this.singletonFactories.get(beanName);
 					if (singletonFactory != null) {
+						// 调用预先设定的getObject方法
 						singletonObject = singletonFactory.getObject();
+						// 记录在缓存中，earlySingletonObjects和singletonFactories互斥
 						this.earlySingletonObjects.put(beanName, singletonObject);
 						this.singletonFactories.remove(beanName);
 					}
@@ -209,8 +217,26 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 	 */
 	public Object getSingleton(String beanName, ObjectFactory<?> singletonFactory) {
 		Assert.notNull(beanName, "'beanName' must not be null");
+/*
+（1）检查缓存是否已经加载过
+（2）若没有加载，则记录beanName的正在加载状态
+（3）加载单例前距离加载状态
+可能你会觉得beforeSingletonCreation方法是个空实现，里面没有任何逻辑，但其实不是，
+这个函数中做了一个很重要的操作：记录加载状态，也就是通过this.singletonsCurrentlyInCreation.add(beanName)
+将当前正要创建的bean记录在缓存中，这样便可以对循环依赖进行检测。
+（4）通过调用参数传入ObjectFactory的个体Object方法实例化bean
+（5）加载单例后的处理方法调用
+同步骤（3）的记录加载状态相似，当bean加载结束后需要移除缓存中对该bean的正在加载状态的记录。
+（6）将结果记录至缓存并删除加载bean过程中所记录的各种辅助状态
+（7）返回处理结果
+ */
+
+		// 全局变量需要同步
 		synchronized (this.singletonObjects) {
+			// 首先检查对应的bean是否已经加载过，因为singleton模式其实就是复用以创建的bean，所
+//			以这一步是必须的
 			Object singletonObject = this.singletonObjects.get(beanName);
+			// 如果为空才可以进行singleto的bean初始化
 			if (singletonObject == null) {
 				if (this.singletonsCurrentlyInDestruction) {
 					throw new BeanCreationNotAllowedException(beanName,
@@ -227,6 +253,7 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 					this.suppressedExceptions = new LinkedHashSet<Exception>();
 				}
 				try {
+					// 初始化bean
 					singletonObject = singletonFactory.getObject();
 					newSingleton = true;
 				}
@@ -253,6 +280,7 @@ public class DefaultSingletonBeanRegistry extends SimpleAliasRegistry implements
 					afterSingletonCreation(beanName);
 				}
 				if (newSingleton) {
+					// 加入缓存
 					addSingleton(beanName, singletonObject);
 				}
 			}
